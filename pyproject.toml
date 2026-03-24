@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nashguard"
+version = "1.0.0"
+description = "NashGuard MCP Server — DRB deterministic risk sandbox + OKX execution gateway for any AI agent"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["trading", "ai", "okx", "risk-management", "mcp", "moa", "drb"]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "cryptography>=41.0.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+# Install for standalone interactive mode: pip install nashguard[standalone]
+standalone = ["litellm>=1.40.0"]
+
+[project.scripts]
+# Primary: MCP server (called by external agents via MCP protocol)
+nashguard-mcp = "nashguard.server:run_server"
+# Secondary: interactive CLI (requires litellm + LLM API key)
+nashguard = "nashguard.main:main"
+
+[project.urls]
+Repository = "https://github.com/your-org/nashguard"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nashguard*"]

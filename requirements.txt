@@ -1,0 +1,21 @@
+# MCP Server (exposes NashGuard as callable tools)
+mcp>=1.0.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Mathematics / statistics (DRB sandbox — no LLM)
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Cryptography (Ed25519 signing)
+cryptography>=41.0.0
+
+# Environment config
+python-dotenv>=1.0.0
+
+# Optional: interactive CLI mode (python -m nashguard --cli)
+rich>=13.0.0
+
+# Optional: litellm for standalone mode (python -m nashguard --cli)
+# litellm>=1.40.0

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nashguard": {
+      "command": "/opt/homebrew/bin/nashguard-mcp",
+      "args": ["--demo"]
+    }
+  }
+}
