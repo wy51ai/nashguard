@@ -64,15 +64,15 @@ def setup_logging(verbose: bool) -> None:
 def make_progress_callback(live_panel_ref: list):
     """Return a callback that prints stage updates to the console."""
     def callback(stage: str, detail: str) -> None:
-        icon = STAGE_ICONS.get(stage, "•")
-        console.print(f"  {icon} {detail}")
+        icon = STAGE_ICONS.get(stage, "[dim]•[/dim]")
+        stage_label = f"[dim]{stage:<8}[/dim]"
+        console.print(f"  {icon}  {stage_label}  {detail}")
     return callback
 
 
 def render_result(result: NashGuardResult) -> None:
     """Pretty-print the full NashGuard result."""
     console.print()
-    console.print(Rule("[bold]NashGuard Decision[/bold]", style="dim"))
 
     # ── Overall verdict ──
     if result.rejected:
@@ -92,17 +92,20 @@ def render_result(result: NashGuardResult) -> None:
             border_style="green",
         ))
 
-    # ── Debate summary ──
+    # ── MoA Debate + DRB side by side ──
+    debate_panel = None
+    drb_panel = None
+
     if result.alpha_proposal or result.risk_assessment:
         debate_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-        debate_table.add_column("Field", style="dim", width=22)
+        debate_table.add_column("Field", style="dim", width=18)
         debate_table.add_column("Value")
 
-        debate_table.add_row("Debate rounds", str(result.debate_rounds))
+        debate_table.add_row("Rounds", str(result.debate_rounds))
         if result.alpha_proposal:
-            debate_table.add_row("Final strategy", result.alpha_proposal.strategy)
+            debate_table.add_row("Strategy", result.alpha_proposal.strategy)
             debate_table.add_row(
-                "Expected return",
+                "Exp. return",
                 f"{result.alpha_proposal.expected_return_pct:+.1f}%",
             )
         if result.risk_assessment:
@@ -114,39 +117,37 @@ def render_result(result: NashGuardResult) -> None:
         if result.judge_decision:
             conf_color = "green" if result.judge_decision.confidence >= 0.7 else "yellow"
             debate_table.add_row(
-                "Judge confidence",
+                "Confidence",
                 f"[{conf_color}]{result.judge_decision.confidence:.0%}[/{conf_color}]",
             )
 
-        console.print(Panel(debate_table, title="[cyan]MoA Debate Summary[/cyan]", border_style="cyan"))
+        debate_panel = Panel(debate_table, title="[cyan]MoA Debate[/cyan]", border_style="cyan")
 
-    # ── DRB Risk Metrics ──
     if result.drb_result:
         drb = result.drb_result
         drb_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-        drb_table.add_column("Metric", style="dim", width=26)
+        drb_table.add_column("Metric", style="dim", width=20)
         drb_table.add_column("Value")
 
         dd_color = "green" if drb.max_drawdown_pct < 10 else ("yellow" if drb.max_drawdown_pct < 20 else "red")
-        drb_table.add_row("Max Drawdown (MC 99%)", f"[{dd_color}]{drb.max_drawdown_pct:.1f}%[/{dd_color}]")
+        drb_table.add_row("Max Drawdown", f"[{dd_color}]{drb.max_drawdown_pct:.1f}%[/{dd_color}]")
         drb_table.add_row("VaR 95%", f"{drb.var_95_pct:.1f}%")
-        drb_table.add_row("CVaR (Expected Shortfall)", f"{drb.expected_shortfall_pct:.1f}%")
+        drb_table.add_row("CVaR", f"{drb.expected_shortfall_pct:.1f}%")
         if drb.liquidation_price:
-            drb_table.add_row("Estimated Liq. Price", f"${drb.liquidation_price:,.0f}")
-        drb_table.add_row(
-            "Monte Carlo sims",
-            f"{drb.details.get('n_simulations', 0):,}",
-        )
-        drb_table.add_row(
-            "DRB Signature",
-            f"[dim]{drb.signature_hex[:32]}...[/dim]",
-        )
+            drb_table.add_row("Liq. Price", f"${drb.liquidation_price:,.0f}")
+        drb_table.add_row("MC Sims", f"{drb.details.get('n_simulations', 0):,}")
+        drb_table.add_row("Signature", f"[dim]{drb.signature_hex[:16]}…[/dim]")
         status = "[green]VERIFIED ✓[/green]" if drb.approved else "[red]REJECTED ✗[/red]"
-        drb_table.add_row("Sandbox verdict", status)
+        drb_table.add_row("Verdict", status)
 
-        console.print(
-            Panel(drb_table, title="[magenta]DRB Sandbox Results[/magenta]", border_style="magenta")
-        )
+        drb_panel = Panel(drb_table, title="[magenta]DRB Sandbox[/magenta]", border_style="magenta")
+
+    if debate_panel and drb_panel:
+        console.print(Columns([debate_panel, drb_panel], equal=True))
+    elif debate_panel:
+        console.print(debate_panel)
+    elif drb_panel:
+        console.print(drb_panel)
 
     # ── Execution results ──
     if result.execution_results:
@@ -166,9 +167,13 @@ def render_result(result: NashGuardResult) -> None:
 
     # ── Audit trail ──
     if result.audit_log:
-        audit_text = "\n".join(f"[dim]{line}[/dim]" for line in result.audit_log)
+        audit_table = Table(box=None, show_header=False, padding=(0, 1))
+        audit_table.add_column("#", style="dim", width=3, justify="right")
+        audit_table.add_column("Entry", style="dim")
+        for i, line in enumerate(result.audit_log, 1):
+            audit_table.add_row(str(i), line)
         console.print(
-            Panel(audit_text, title="[dim]Full Audit Trail[/dim]", border_style="dim")
+            Panel(audit_table, title="[dim]Audit Trail[/dim]", border_style="dim")
         )
 
 
@@ -225,7 +230,7 @@ async def run_interactive(config: Config) -> None:
             console.print("[dim]Goodbye.[/dim]")
             break
 
-        console.print(Rule(f"[dim]Processing: {user_input[:60]}[/dim]", style="dim"))
+        console.print(Rule(f"[dim]▸ {user_input[:70]}[/dim]", style="dim"))
         start = time.monotonic()
 
         try:
@@ -236,7 +241,7 @@ async def run_interactive(config: Config) -> None:
             continue
 
         elapsed = time.monotonic() - start
-        console.print(f"  [dim]Completed in {elapsed:.1f}s[/dim]")
+        console.print(Rule(f"[dim]done in {elapsed:.1f}s[/dim]", style="dim"))
         render_result(result)
 
 

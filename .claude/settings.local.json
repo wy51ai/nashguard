@@ -17,7 +17,9 @@
       "Bash(/opt/homebrew/bin/python3.11 -m pip show nashguard)",
       "mcp__nashguard__nashguard_snapshot",
       "mcp__nashguard__nashguard_validate",
-      "mcp__nashguard__nashguard_execute"
+      "mcp__nashguard__nashguard_execute",
+      "Bash(python:*)",
+      "Bash(python3:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
