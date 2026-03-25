@@ -1,11 +1,12 @@
 # NashGuard (纳什护盾)
 
-> **The first MoA multi-agent debate + DRB deterministic risk boundary trading protocol.**
-> Zero-hallucination, anti-liquidation AI trading powered by OKX Agent Trade Kit.
+> **MCP safety gateway for AI trading agents: DRB deterministic risk sandbox + OKX Agent Trade Kit execution layer.**
+> Any agent (Claude / GPT / Gemini / your own) can call NashGuard.
+> NashGuard itself has **zero LLM dependency** — it only does math.
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue)](https://python.org)
+[![MCP Server](https://img.shields.io/badge/MCP-Server-green)](https://modelcontextprotocol.io)
 [![OKX Agent Trade Kit](https://img.shields.io/badge/OKX-Agent%20Trade%20Kit-orange)](https://github.com/okx/agent-tradekit)
-[![Claude AI](https://img.shields.io/badge/Claude-Haiku%20%2B%20Sonnet-purple)](https://anthropic.com)
 
 ---
 
@@ -14,66 +15,87 @@
 > *"How do you know the AI didn't add an extra zero to the order size?
 > How do you know it understands 'short' means sell, not buy?"*
 
-Current AI trading bots are single-agent systems with no adversarial review.
-A single LLM hallucination can liquidate your entire account.
+NashGuard is not another AI trading bot. It is infrastructure — a cryptographic and mathematical safety gate that any AI agent must pass through before touching the OKX API.
 
-## The Solution
+## The Solution: NashGuard is an MCP Server
 
-NashGuard wraps every trade through **two independent safety layers**:
+NashGuard exposes three tools that any MCP-compatible agent can call:
 
-1. **MoA Debate Network** — Three Claude agents debate every trade before execution:
-   - **α Alpha** (`claude-haiku`): Proposes the most profitable strategy
-   - **⚠ Risk** (`claude-sonnet`): Scrutinises for any way it could blow up
-   - **⚖ Judge** (`claude-sonnet`): Arbitrates and writes the final verdict
+```
+Your Agent (any LLM)
+    │
+    ├─① nashguard_snapshot()
+    │      └─ Returns live OKX market data + account snapshot
+    │
+    ├─ Your agent reasons and forms a trade proposal
+    │   (can do Alpha/Risk/Judge internal debate, or go direct)
+    │
+    ├─② nashguard_validate(proposal)
+    │      └─ DRB sandbox: Monte Carlo × 10,000 paths + Black-Scholes pricing
+    │         Returns: max_drawdown / VaR95 / CVaR + Ed25519 signature
+    │
+    └─③ nashguard_execute(proposal, drb_result)
+           └─ Verifies Ed25519 signature → only sandbox-approved trades
+              can reach OKX Agent Trade Kit
+```
 
-2. **DRB Sandbox** — A non-LLM mathematical firewall:
-   - Monte Carlo simulation (10,000 paths, Geometric Brownian Motion)
-   - Black-Scholes option pricing + Greeks
-   - Ed25519 cryptographic signature on the risk result
-   - **Hard blocks** any trade if max drawdown exceeds 20%
+**NashGuard requires no LLM API key.** Intelligence lives in the caller. Safety lives in NashGuard.
 
 ---
 
 ## Live Demo: "All-in 100x Long BTC"
 
 ```
-User: 帮我全仓做多 BTC，用最高杠杆，立刻执行！
+User → Agent: "Go all-in long BTC with max leverage, execute now!"
 
-◉ Fetching live market & account data from OKX...
-  → BTC=$83,452 (+1.2%) | Balance=$10,000 USDT
+Agent → nashguard_snapshot()
+  ← BTC=$83,452 (+1.2%) | Balance=$10,000 USDT | max_leverage=10x
 
-α [Round 1] Alpha generating trade strategy...
-  → FUTURES_LONG: 100% balance, 100x leverage on BTC-USDT-SWAP
+Agent reasons: user wants max leverage, try 100x first...
 
-⚠ [Round 1] Risk agent scrutinising proposal...
-  → REJECTED (score=9.8/10)
-  → Violations: leverage 100x exceeds limit 10x; 1% BTC move = liquidation
+Agent → nashguard_validate({
+    strategy: "futures_long",
+    legs: [{module:"swap", instId:"BTC-USDT-SWAP",
+            side:"buy", size_pct:100, leverage:100}], ...
+  })
+  ← {
+       "approved": false,
+       "max_drawdown_pct": 98.7,
+       "rejection_reason": "Leverage 100x exceeds hard limit 10x",
+       ...
+     }
 
-α [Round 2] Alpha refining strategy (guided by Risk feedback)...
-  → COMBINED: 50% spot BTC-USDT + 10% call option BTC-USD-240628-90000-C
+Agent reconsiders: switch to spot + call option combo...
 
-⚠ [Round 2] Risk agent scrutinising revised proposal...
-  → APPROVED (score=3.2/10) ✓
+Agent → nashguard_validate({
+    strategy: "combined",
+    legs: [
+      {module:"spot",   instId:"BTC-USDT",              side:"buy", size_pct:50},
+      {module:"option", instId:"BTC-USD-251226-90000-C", side:"buy", size_pct:10}
+    ],
+    tool_calls: [
+      {tool:"spot_place_order",   arguments:{instId:"BTC-USDT", side:"buy", ordType:"market", sz:"0.06"}},
+      {tool:"option_place_order", arguments:{instId:"BTC-USD-251226-90000-C", side:"buy", ordType:"market", sz:"1"}}
+    ], ...
+  })
+  ← {
+       "approved": true,
+       "max_drawdown_pct": 12.4,
+       "var_95_pct": 8.1,
+       "signature_hex": "a3f2c1d8e9f04b2c...",
+       ...
+     }
 
-⚖  Judge rendering final decision...
-  → Approved with confidence 82%
+Agent → nashguard_execute(proposal, drb_result)
+  ← ✓ Ed25519 signature verified
+  ← ✓ spot_place_order  → OK
+  ← ✓ option_place_order → OK
 
-🔐 DRB Sandbox: Monte Carlo × 10,000 paths + Black-Scholes...
-  → Max Drawdown: 12.4% | VaR95: 8.1% | CVaR: 14.2%
-  → Ed25519 signature: a3f2c1d8... VERIFIED ✓
-
-▶  [DEMO] Executing via OKX Agent Trade Kit...
-  → spot_place_order(BTC-USDT, buy, market, $5,000): OK
-  → option_place_order(BTC-USD-240628-90000-C, buy, market, 1): OK
-
-╔══════════════════════════════════════════════════════╗
-║  ✓ APPROVED & EXECUTED                               ║
-║  Your all-in 100x request was blocked (would have    ║
-║  liquidated at BTC=$82,500 — just $952 away).        ║
-║  Replaced with: 50% spot BTC + 1-month call option.  ║
-║  Maximum loss: $1,000 (10% of capital). Upside:      ║
-║  unlimited via the call option.                      ║
-╚══════════════════════════════════════════════════════╝
+Agent → User:
+  "Your 100x all-in request was blocked
+   (would liquidate at BTC=$82,500 — just $952 away).
+   Executed instead: 50% spot BTC + 10% call option.
+   Max loss: $1,240 (12.4%). Upside: unlimited."
 ```
 
 ---
@@ -81,35 +103,29 @@ User: 帮我全仓做多 BTC，用最高杠杆，立刻执行！
 ## Architecture
 
 ```
-User Input
+Your Agent (any LLM — Claude, GPT, Gemini, local Ollama...)
     │
+    │  calls MCP tools
     ▼
-┌───────────────────────────────────────────────┐
-│  NashGuard Orchestrator                        │
-│                                               │
-│  Phase 0: OKX Snapshot (market + account)     │
-│    ├─ market_get_ticker   (BTC price)          │
-│    └─ account_get_balance (available funds)    │
-│                                               │
-│  Phase 1: MoA Debate                          │
-│    ├─ α  Alpha  → TradeProposal               │
-│    ├─ ⚠  Risk   → RiskAssessment              │
-│    └─ (repeat up to 3 rounds)                 │
-│                                               │
-│  Phase 2: Judge → JudgeDecision               │
-│                                               │
-│  Phase 3: DRB Sandbox (NON-LLM)               │
-│    ├─ Black-Scholes option pricing            │
-│    ├─ Monte Carlo simulation (10k paths)      │
-│    ├─ VaR / CVaR / Max Drawdown               │
-│    └─ Ed25519 signature                       │
-│                                               │
-│  Phase 4: Execution (signature-gated)         │
-│    └─ OKX Agent Trade Kit MCP tools           │
-└───────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  NashGuard MCP Server                                │
+│                                                      │
+│  nashguard_snapshot                                  │
+│    ├─ OKX market module  → live prices               │
+│    └─ OKX account module → real balance              │
+│                                                      │
+│  nashguard_validate  (ZERO LLM — pure math)          │
+│    ├─ Monte Carlo GBM  (10,000 paths)                │
+│    ├─ Black-Scholes pricing + Greeks                 │
+│    ├─ VaR95 / CVaR / Max Drawdown                    │
+│    └─ Ed25519 sign the result                        │
+│                                                      │
+│  nashguard_execute  (signature-gated)                │
+│    ├─ Verify Ed25519 signature                       │
+│    ├─ Check approved=true in signed payload          │
+│    └─ OKX Agent Trade Kit: spot / swap / option      │
+└──────────────────────────────────────────────────────┘
 ```
-
-**[Full architecture →](docs/architecture-design.md)**
 
 ---
 
@@ -124,7 +140,7 @@ User Input
   npm install -g okx-trade-mcp
   ```
 
-### Install NashGuard
+### Install
 
 ```bash
 cd nashguard
@@ -135,79 +151,82 @@ pip install -e .
 
 ```bash
 cp .env.example .env
-# Edit .env and set:
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   OKX_API_KEY=...        (optional — market data works without)
+# NashGuard needs NO LLM API key.
+# Only OKX credentials (optional — market data works without):
+#   OKX_API_KEY=...
 #   OKX_SECRET_KEY=...
 #   OKX_PASSPHRASE=...
-#   OKX_DEMO=true          (default: demo mode, safe)
+#   OKX_DEMO=true    (default: demo mode, safe)
 ```
 
-### Run
+### Register with your AI client
 
+**Claude Desktop / Claude Code:**
+```json
+{
+  "mcpServers": {
+    "nashguard": {
+      "command": "nashguard-mcp",
+      "args": ["--demo"]
+    }
+  }
+}
+```
+
+**Cursor / Windsurf** — add the same config to `.mcp.json`.
+
+**Any MCP-compatible agent:**
 ```bash
-# Interactive terminal (demo mode)
-python -m nashguard
-
-# Or using the installed script
-nashguard
-
-# Live trading (requires OKX credentials + OKX_DEMO=false)
-nashguard --live
+nashguard-mcp --demo    # stdio transport, standard MCP protocol
 ```
 
 ---
 
 ## Risk Parameters
 
-All limits are configurable in `nashguard/config.py`:
+All hard limits are configurable via environment variables (no code changes needed):
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_drawdown_pct` | 20% | DRB hard-blocks trades exceeding this |
-| `max_leverage` | 10x | Any leg above this is auto-rejected |
-| `max_position_pct` | 80% | Max % of balance in a single trade |
-| `max_debate_rounds` | 3 | MoA rounds before hard-reject |
-| `monte_carlo_simulations` | 10,000 | GBM paths for risk estimation |
+- `NASHGUARD_MAX_DRAWDOWN_PCT` — default **20%**. DRB hard-blocks any trade exceeding this.
+- `NASHGUARD_MAX_LEVERAGE` — default **10x**. Any leg above this is auto-rejected.
+- `NASHGUARD_MAX_POSITION_PCT` — default **80%**. Max % of balance in a single trade.
+- `NASHGUARD_MONTE_CARLO_SIMS` — default **10,000**. GBM paths for risk estimation.
+- `OKX_DEMO` — default **true**. Set to `false` for live trading (requires OKX credentials).
 
 ---
 
 ## Tests
 
 ```bash
-pip install pytest
 pytest tests/ -v
 ```
 
-Tests cover: Black-Scholes put-call parity, IV round-trip, Monte Carlo
-reproducibility, DRB approval/rejection logic, and Ed25519 signature
-tamper detection. All tests are **LLM-free** (deterministic).
+All tests are **LLM-free and deterministic** — zero network requests, zero API keys needed:
+
+- Black-Scholes put-call parity
+- IV Newton-Raphson convergence accuracy
+- Monte Carlo reproducibility (fixed random seed)
+- DRB approval / rejection branches
+- Ed25519 signature tamper detection
 
 ---
 
 ## Integration with OKX Agent Trade Kit
 
-NashGuard uses 5 of the 8 OKX modules:
+NashGuard uses 5 OKX modules, each with a specific role in the safety pipeline:
 
-| Module | How NashGuard uses it |
-|--------|----------------------|
-| `market` | Snapshot: BTC/ETH prices, funding rates |
-| `account` | Snapshot: available balance, open positions |
-| `spot` | Execution: spot_place_order for cash legs |
-| `swap` | Execution: swap_place_order for perpetual futures |
-| `option` | Execution: option_place_order for option legs |
+- **`market`** — `nashguard_snapshot`: locks live BTC/ETH prices as DRB pricing baseline
+- **`account`** — `nashguard_snapshot`: fetches real available balance for absolute loss calculation
+- **`spot`** — `nashguard_execute`: executes signature-approved spot legs
+- **`swap`** — `nashguard_execute`: executes signature-approved perpetual futures legs
+- **`option`** — dual role: `nashguard_validate` prices option legs via Black-Scholes; `nashguard_execute` runs the order
 
-The MCP connection is managed via `OKXMCPClient`, an async subprocess
-JSON-RPC 2.0 client that speaks the standard MCP stdio protocol.
+The MCP connection is managed via `OKXMCPClient`, an async subprocess JSON-RPC 2.0 client over stdio.
 
 ---
 
 ## Why "NashGuard"?
 
-Named after John Nash (Nash Equilibrium). The MoA debate converges to a
-Nash Equilibrium where neither Alpha (wants more profit) nor Risk
-(wants more safety) can improve their outcome unilaterally — the Judge
-synthesizes the Pareto-optimal strategy.
+Named after John Nash (Nash Equilibrium). When an agent runs an internal Alpha/Risk/Judge debate before calling `nashguard_validate`, the debate converges to a Nash Equilibrium: neither Alpha (maximise profit) nor Risk (minimise loss) can unilaterally improve their outcome. NashGuard's mathematical sandbox is the objective arbiter of that equilibrium — whatever the agent decides, the math has the final word.
 
 ---
 
